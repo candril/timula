@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::{Local, Timelike};
 use crossterm::{
     event::{self, KeyEventKind},
@@ -6,18 +6,28 @@ use crossterm::{
     ExecutableCommand,
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use std::io::stdout;
+use std::{io::stdout, str::FromStr};
+
+use clap::Parser;
 
 mod text;
 
-fn main() -> Result<()> {
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Specifies the font color of the clock
+    #[arg(short, long)]
+    color: String,
+}
+fn start_ui(color: Color) -> Result<()> {
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
+
     loop {
-        terminal.draw(|frame| render(frame).expect("failed to render"))?;
+        terminal.draw(|frame| render(color, frame).expect("failed to render"))?;
 
         if event::poll(std::time::Duration::from_millis(16))? {
             if let event::Event::Key(key) = event::read()? {
@@ -33,8 +43,18 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     Ok(())
 }
+fn main() -> Result<()> {
+    let args = Args::parse();
 
-fn render(frame: &mut Frame) -> Result<()> {
+    let color = match Color::from_str(&args.color) {
+        Ok(color) => color,
+        Err(_) => bail!("Invalid color '{}'", args.color),
+    };
+
+    start_ui(color)
+}
+
+fn render(color: Color, frame: &mut Frame) -> Result<()> {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![
@@ -46,13 +66,13 @@ fn render(frame: &mut Frame) -> Result<()> {
 
     let now = Local::now();
     let value = text::generate_lines(format!(
-        "{:02}:{:02}:{:02}.{:05}",
+        "{:02}:{:02}:{:02}",
         now.hour(),
         now.minute(),
         now.second(),
-        now.nanosecond() / 10000
     ));
-    let value: Vec<Line<'static>> = value.into_iter().map(|s| s.green().into()).collect();
+
+    let value: Vec<Line<'static>> = value.into_iter().map(|s| s.fg(color).into()).collect();
 
     frame.render_widget(
         Paragraph::new(value).alignment(Alignment::Center),
